@@ -1,16 +1,23 @@
-from flask import Flask, request, jsonify
-import yfinance as yf
-
-app = Flask(__name__)
-
 @app.route("/options", methods=["GET"])
 def get_options():
     ticker = request.args.get("ticker")
-    stock = yf.Ticker(ticker)
-    current_price = stock.history(period="1d")["Close"].iloc[-1]
+    try:
+        stock = yf.Ticker(ticker)
+        options_dates = stock.options
+    except Exception as e:
+        return jsonify({"error": "Rate limited or ticker invalid", "details": str(e)}), 500
+
+    try:
+        history = stock.history(period="1d")
+        if history.empty or "Close" not in history:
+            return jsonify({"error": "Could not retrieve stock price"}), 500
+        current_price = history["Close"].iloc[-1]
+    except:
+        return jsonify({"error": "Failed to fetch historical price"}), 500
+
     results = []
 
-    for exp in stock.options:
+    for exp in options_dates:
         try:
             calls = stock.option_chain(exp).calls
             for _, row in calls.iterrows():
@@ -33,6 +40,3 @@ def get_options():
             continue
 
     return jsonify(sorted(results, key=lambda x: (-x["volume"], -x["open_interest"]))[:10])
-
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000)
